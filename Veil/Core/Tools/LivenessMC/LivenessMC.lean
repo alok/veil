@@ -361,8 +361,11 @@ instance [Inhabited σ] {sys : Veil.EnumerableTransitionSystem ρ (List ρ) σ (
     (Veil.Transitions l Int σ) th} : RouteCertificate .fair sys := ⟨trivial⟩
 
 /-- Run `route` on `p`. `patOnly` and `prune` fall back to `crossing` when a hoisted region mentions
-a `⟨…⟩` atom. -/
-def checkRoute [Inhabited σ] (route : Route)
+a `⟨…⟩` atom.
+
+Inlined so that a caller that passes a constant `route` keeps only that route's branch. Otherwise the
+compiler specializes every route's algorithm to the caller's system, though one route runs. -/
+@[inline] def checkRoute [Inhabited σ] (route : Route)
     (sys : Veil.EnumerableTransitionSystem ρ (List ρ) σ (List σ) Int l
       (Veil.Transitions l Int σ) th) (p : LivenessProperty ρ σ l)
     [cert : RouteCertificate route sys] :

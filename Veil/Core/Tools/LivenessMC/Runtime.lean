@@ -28,8 +28,10 @@ constraints match the safety checker, and a dead end stutters. Assertion failure
 separately by `#model_check`.
 
 Cancellation and progress are honoured between properties only. Explored counts are product states summed over passed
-properties, including the prefix carried over at handoff. -/
-def checkAllWithProgress [ToJson ρ] [ToJson σ]
+properties, including the prefix carried over at handoff.
+
+Inlined, as `checkRoute` is, so that the constant `route` of a `#temporal_check` reaches `checkRoute`. -/
+@[inline] def checkAllWithProgress [ToJson ρ] [ToJson σ]
     (sys : EnumerableTransitionSystem ρ (List ρ) σ (List σ) Int l (Transitions l Int σ) th)
     (params : SearchParameters ρ σ) (properties : List (LivenessProperty ρ σ l))
     (instanceId : Nat) (cancelToken : IO.CancelToken) (route : Route := .fair)
