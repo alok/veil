@@ -477,7 +477,12 @@ private def runWithHandoff (command : ModelChecker.Compilation.CompiledCommandSp
         ModelChecker.Concrete.cancelProgress ctx.instanceId
           -- If the result was already cancelled, propagate that since it may carry additional information
           (if resultWasCancelled json then json else Json.mkObj [("result", "cancelled")])
-      | (false, _) => finishWithResult ctx json
+      | (false, _) =>
+        finishWithResult ctx json
+        -- The search ended before the binary was built, so the binary has nothing left to do.
+        -- Stop the background build, as the Stop button does: otherwise the command, and with it
+        -- `lake build` or `lake lean`, waits for a build whose result nothing uses.
+        compilationCancelTk.set
       | (true, true) =>
           -- Handoff requested, let the compiled binary take over -- unless this run
           -- had already finished in the window before the handoff landed, in which
@@ -504,6 +509,9 @@ private def runWithHandoff (command : ModelChecker.Compilation.CompiledCommandSp
         compileModel sourceFile callExpr commandId ctx.instanceId compilationCancelTk
         command | do
           ModelChecker.Concrete.setCompilationCancelToken ctx.instanceId none
+          -- The build stopped because the interpreted run finished first: no build is running.
+          if ← IO.hasFinished interpretedTask then
+            ModelChecker.Concrete.updateCompilationStatus ctx.instanceId .none
           return
       -- Skip handoff if violation found or interpreted finished
       if (← ModelChecker.Concrete.isViolationFound ctx.instanceId) || (← IO.hasFinished interpretedTask) ||
