@@ -459,10 +459,11 @@ private def runCompiled (command : ModelChecker.Compilation.CompiledCommandSpec)
 
 /-- Handle default mode: run interpreted + background compile with handoff. -/
 private def runWithHandoff (command : ModelChecker.Compilation.CompiledCommandSpec)
-    (ctx : ExecutionContext) (callExpr : Term) : CommandElabM Unit := do
+    (ctx : ExecutionContext) (callExpr : Term) (interpretedCallExpr : Term := callExpr) :
+    CommandElabM Unit := do
   let sourceFile ← getFileName
   let commandId ← getCompiledCommandId s!"#{command.name}" ctx.stx
-  let ioComputation ← elaborateInterpretedComputation ctx.instanceId callExpr ctx.parallelCfg
+  let ioComputation ← elaborateInterpretedComputation ctx.instanceId interpretedCallExpr ctx.parallelCfg
 
   -- Register the compilation token before starting either task.
   let compilationCancelTk ← IO.CancelToken.new
@@ -659,21 +660,22 @@ private def runBuildOnly (command : ModelChecker.Compilation.CompiledCommandSpec
 continuation, in that order. Its result must have a `ToJson` instance. `extractMs`, the time the
 command spent generating the module's executable definitions, is reported by
 `veil.modelChecker.buildOnly`. `initialProgress` supplies the command-specific metrics before
-execution starts. -/
+execution starts. `interpretedCallExpr`, if given, replaces `callExpr` in the interpreted run, which
+the binary then does not share: e.g. a call to code that is not specialized to the module. -/
 def run (command : ModelChecker.Compilation.CompiledCommandSpec)
     (kind : TraceDisplay.ResultKind) (mod : Module) (stx : Syntax)
     (mode : ModelCheckingMode) (callExpr : Term)
     (initialProgress : ModelChecker.Concrete.ProgressDetails)
     (parallelCfg : Option ModelChecker.ParallelConfig := none)
-    (extractMs : Nat := 0) : CommandElabM Unit := do
+    (extractMs : Nat := 0) (interpretedCallExpr : Option Term := none) : CommandElabM Unit := do
   if veil.modelChecker.buildOnly.get (← getOptions) then
     return ← runBuildOnly command stx callExpr extractMs
   let mode := if (← liftIO isVeilOnlineEnv) then .interpreted else mode
   let ctx ← allocExecutionContext mod stx parallelCfg kind initialProgress
   match mode with
-  | .interpreted => runInterpreted ctx callExpr
+  | .interpreted => runInterpreted ctx (interpretedCallExpr.getD callExpr)
   | .compiled => runCompiled command ctx callExpr
-  | .default => runWithHandoff command ctx callExpr
+  | .default => runWithHandoff command ctx callExpr (interpretedCallExpr.getD callExpr)
 
 /-- How the message of `buildOnly` starts: the VS Code extension reads the rest as the path of the
 binary (`BUILT_PREFIX`) -/

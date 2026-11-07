@@ -102,4 +102,15 @@ Inlined, as `checkRoute` is, so that the constant `route` of a `#temporal_check`
     ("properties_checked", toJson progress.propertiesChecked), ("explored_states", toJson explored),
     ("timing", timingJson route searchNs perProperty)]
 
+/-- `checkAllWithProgress`, compiled once here for every system, rather than specialized to the
+system where it is called. The interpreted run of `#temporal_check` calls it: specializing the
+liveness algorithms to a system takes seconds, longer than the whole search of a small product. -/
+@[nospecialize] def checkAllWithProgressGeneric [ToJson ρ] [ToJson σ]
+    (sys : EnumerableTransitionSystem ρ (List ρ) σ (List σ) Int l (Transitions l Int σ) th)
+    (params : SearchParameters ρ σ) (properties : List (LivenessProperty ρ σ l))
+    (instanceId : Nat) (cancelToken : IO.CancelToken) (route : Route := .fair)
+    [cert : RouteCertificate route (restrictSystemByStateConstraints sys params th)] :
+    IO Json :=
+  checkAllWithProgress sys params properties instanceId cancelToken route (cert := cert)
+
 end Veil.LivenessMC

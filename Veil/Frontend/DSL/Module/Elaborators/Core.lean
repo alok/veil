@@ -884,10 +884,13 @@ private def routeTerm (route : LivenessMC.Route) : Term :=
     | .prune => ``LivenessMC.Route.prune
     | .fair => ``LivenessMC.Route.fair
 
-/-- Build a liveness call with the same continuation interface as the other runners. -/
+/-- Build a liveness call with the same continuation interface as the other runners. With
+`generic`, the call goes to `checkAllWithProgressGeneric`, which the compiler does not specialize
+to the system: for the interpreted run, whose specialization would take longer than its search. -/
 private def mkLivenessCheckerCall (em : ExecutableModule) (instTerm theoryTerm : Term)
     (properties : Array TemporalProperty) (route : LivenessMC.Route)
-    (finiteReachBy : Option (TSyntax `Lean.Parser.Tactic.tacticSeq)) : CommandElabM Term :=
+    (finiteReachBy : Option (TSyntax `Lean.Parser.Tactic.tacticSeq)) (generic : Bool := false) :
+    CommandElabM Term :=
   mkExecutionCall em {} instTerm theoryTerm (includeSafetyAndDeadlock := false) fun ectx => do
   let instSortArgs := ectx.instSortArgs
   let sys := ectx.sysWithoutLog
@@ -896,7 +899,8 @@ private def mkLivenessCheckerCall (em : ExecutableModule) (instTerm theoryTerm :
     `($(mkIdentWithModName em (toTemporalAstName lp.name))
       ($theoryIdent $instSortArgs*) ($stateIdent ($fieldConcreteDispatcher $instSortArgs*))
       $instSortArgs* ($fieldConcreteDispatcher $instSortArgs*))
-  let checkAll := mkIdent ``Veil.LivenessMC.checkAllWithProgress
+  let checkAll := mkIdent <| if generic then ``Veil.LivenessMC.checkAllWithProgressGeneric
+    else ``Veil.LivenessMC.checkAllWithProgress
   -- `ndfs` takes its certificate from the `finite_reach_by` tactic, the other routes by instance.
   let runCall ← match finiteReachBy with
     | none => `($checkAll:ident $sys $sp [$props,*] progressInstanceId cancelToken
@@ -962,7 +966,10 @@ def elabLivenessCheck : CommandElab := fun stx => withStreamingInfo stx do
     let executable ← mod.toExecutableModule
     let instantiation ← `(__veil_instantiation% $instTerm)
     let callExpr ← mkLivenessCheckerCall executable instantiation theoryTerm properties cfg.route finiteReachBy
+    let interpretedCallExpr ← mkLivenessCheckerCall executable instantiation theoryTerm properties
+      cfg.route finiteReachBy (generic := true)
     ExecutionWorkflow.run { name := "temporal_check", actionLabels := executable.actionLabels.toList }
       .liveness mod stx mode callExpr (.liveness { numProperties := properties.size }) (extractMs := extractMs)
+      (interpretedCallExpr := interpretedCallExpr)
 
 end Veil
