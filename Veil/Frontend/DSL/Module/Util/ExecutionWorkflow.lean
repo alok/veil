@@ -360,6 +360,27 @@ structure BuildTiming where
   cBytes : Nat
   deriving Inhabited, Repr
 
+/-- Run `act` in a task of its own and return its result, or `none` as soon as `cancelToken` is
+set. The compiler checks for cancellation only between its passes, which can be seconds apart, so
+`act` may run on until then, but nothing waits for it. The messages `act` logs are kept. -/
+private def runUnlessCancelled (cancelToken : IO.CancelToken) (act : CommandElabM α) :
+    CommandElabM (Option α) := do
+  let run ← Command.wrapAsync (cancelTk? := some cancelToken) fun () => do
+    modify fun s => { s with messages := {} }
+    let result ← try Except.ok <$> act catch e => pure (Except.error e)
+    return (result, (← get).messages)
+  let task ← EIO.asTask (run ()) (prio := .dedicated)
+  let cancelled ← IO.Promise.new
+  cancelToken.onSet (cancelled.resolve ())
+  let first ← IO.waitAny' [task.map (sync := true) some,
+    (cancelled.resultD ()).map (sync := true) fun _ => none]
+  match first.1 with
+  | none => return none
+  | some (.error e) => throw e
+  | some (.ok (result, messages)) =>
+    modify fun s => { s with messages := s.messages ++ messages }
+    return some (← MonadExcept.ofExcept result)
+
 /-- Compile the model. Return `none` on interruption; throw on compilation failure. The phases of
 a completed build are stored in `timing?`, when given. -/
 private def compileModel (sourceFile : String) (callExpr : Term)
@@ -368,7 +389,9 @@ private def compileModel (sourceFile : String) (callExpr : Term)
     (timing? : Option (IO.Ref BuildTiming) := none) : CommandElabM (Option System.FilePath) := do
   if ← cancelToken.isSet then return none
   let emitStartMs ← IO.monoMsNow
-  let cCode ← generateCCode command callExpr
+  -- Once cancelled, e.g. because the interpreted run has a verdict, stop waiting for the C at once,
+  -- rather than when the compiler gets to its next check, which can take seconds.
+  let some cCode ← runUnlessCancelled cancelToken (generateCCode command callExpr) | return none
   let emitCMs := (← IO.monoMsNow) - emitStartMs
   if ← cancelToken.isSet then return none
   let imports ← liftCoreM <| ModelChecker.Compilation.executionImports (← getEnv)
